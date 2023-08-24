@@ -497,7 +497,10 @@ def parse_args():
         if args.execution_provider == "CUDAExecutionProvider":
             args.execution_provider = (args.execution_provider, {"device_id": args.device_id})
         elif args.execution_provider == "ROCMExecutionProvider":
-            args.execution_provider = (args.execution_provider, {"device_id": args.device_id})
+            args.execution_provider = (args.execution_provider,
+                                       {"device_id": args.device_id,
+                                        "tunable_op_enable": 1,
+                                        "tunable_op_tuning_enable": 1})
             args.device = "cuda"
 
     # Check that model paths have been specified for any benchmarking with ORT
