@@ -14,6 +14,7 @@ import coloredlogs
 
 # import torch before onnxruntime so that onnxruntime uses the cuDNN in the torch package.
 import torch
+from benchmark_helper import CudaMemoryMonitor, RocmMemoryMonitor
 
 SD_MODELS = {
     "1.5": "runwayml/stable-diffusion-v1-5",
@@ -44,96 +45,6 @@ def example_prompts():
     ]
 
     return prompts
-
-
-class CudaMemoryMonitor:
-    def __init__(self, keep_measuring=True):
-        self.keep_measuring = keep_measuring
-
-    def measure_gpu_usage(self):
-        from py3nvml.py3nvml import (
-            NVMLError,
-            nvmlDeviceGetCount,
-            nvmlDeviceGetHandleByIndex,
-            nvmlDeviceGetMemoryInfo,
-            nvmlDeviceGetName,
-            nvmlInit,
-            nvmlShutdown,
-        )
-
-        max_gpu_usage = []
-        gpu_name = []
-        try:
-            nvmlInit()
-            device_count = nvmlDeviceGetCount()
-            if not isinstance(device_count, int):
-                print(f"nvmlDeviceGetCount result is not integer: {device_count}")
-                return None
-
-            max_gpu_usage = [0 for i in range(device_count)]
-            gpu_name = [nvmlDeviceGetName(nvmlDeviceGetHandleByIndex(i)) for i in range(device_count)]
-            while True:
-                for i in range(device_count):
-                    info = nvmlDeviceGetMemoryInfo(nvmlDeviceGetHandleByIndex(i))
-                    if isinstance(info, str):
-                        print(f"nvmlDeviceGetMemoryInfo returns str: {info}")
-                        return None
-                    max_gpu_usage[i] = max(max_gpu_usage[i], info.used / 1024**2)
-                time.sleep(0.002)  # 2ms
-                if not self.keep_measuring:
-                    break
-            nvmlShutdown()
-            return [
-                {
-                    "device_id": i,
-                    "name": gpu_name[i],
-                    "max_used_MB": max_gpu_usage[i],
-                }
-                for i in range(device_count)
-            ]
-        except NVMLError as error:
-            print("Error fetching GPU information using nvml: %s", error)
-            return None
-
-
-class RocmMemoryMonitor:
-    def __init__(self, keep_measuring=True):
-        self.keep_measuring = keep_measuring
-        rocm_smi_path = "/opt/rocm/libexec/rocm_smi"
-        if os.path.exists(rocm_smi_path):
-            if rocm_smi_path not in sys.path:
-                sys.path.append(rocm_smi_path)
-        try:
-            import rocm_smi
-
-            self.rocm_smi = rocm_smi
-            self.rocm_smi.initializeRsmi()
-        except ImportError:
-            self.rocm_smi = None
-
-    def get_used_memory(self, dev):
-        if self.rocm_smi is None:
-            return -1
-        return self.rocm_smi.getMemInfo(dev, "VRAM")[0] / 1024 / 1024
-
-    def measure_gpu_usage(self):
-        device_count = len(self.rocm_smi.listDevices()) if self.rocm_smi is not None else 0
-        max_gpu_usage = [0 for i in range(device_count)]
-        gpu_name = [f"GPU{i}" for i in range(device_count)]
-        while True:
-            for i in range(device_count):
-                max_gpu_usage[i] = max(max_gpu_usage[i], self.get_used_memory(i))
-            time.sleep(0.002)  # 2ms
-            if not self.keep_measuring:
-                break
-        return [
-            {
-                "device_id": i,
-                "name": gpu_name[i],
-                "max_used_MB": max_gpu_usage[i],
-            }
-            for i in range(device_count)
-        ]
 
 
 def measure_gpu_memory(monitor_type, func, start_memory=None):
